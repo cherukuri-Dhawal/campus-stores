@@ -74,13 +74,13 @@
     {
       time: "Friday · 7:30 pm",
       title: "The kit comes back in pieces",
-      text: "Kabir has brought back the projector and speaker. “Leela still has the adapter. She’ll drop it off tomorrow at nine.” Take the return and hand over to the morning shift.",
+      text: "Kabir has brought back the projector and speaker. "Leela still has the adapter. She'll drop it off tomorrow at nine." Take the return and hand over to the morning shift.",
       next: "Move to next morning",
     },
     {
       time: "Saturday · 9:00 am",
       title: "Morning shift",
-      text: "You’ve just taken over. Leela walks in with an adapter. Work out what was outstanding from the screening and close the loan for the right item.",
+      text: "You've just taken over. Leela walks in with an adapter. Work out what was outstanding from the screening and close the loan for the right item.",
     },
   ];
   const pages = [
@@ -108,6 +108,7 @@
     notes: [],
     editing: false,
     onlyOpen: true,
+    returning: null,
     notice: "Sample shift · All records are fictional.",
   });
   let s = original();
@@ -158,6 +159,18 @@
     "</div></div>";
   const badge = (t, good = false) =>
     '<span class="tag' + (good ? " good" : "") + '">' + esc(t) + "</span>";
+
+  // Returns a summary string for how many items are still out for a request
+  function reqSummary(reqId) {
+    const r = getReq(reqId);
+    const totalItems = r.items.length;
+    const issued = s.loans.filter((l) => l.req === reqId);
+    const stillOut = issued.filter((l) => !l.back).length;
+    if (issued.length === 0) return totalItems + " item" + (totalItems !== 1 ? "s" : "") + " · not issued";
+    if (stillOut === 0) return "All returned";
+    return stillOut + " still out";
+  }
+
   function requestPage() {
     let html = head(
       "Approved requests",
@@ -165,6 +178,33 @@
     );
     if (s.selected) {
       const r = getReq(s.selected);
+      // Build per-item checklist
+      let checklist = '<ul class="checklist">';
+      for (const itemType of r.items) {
+        const loan = s.loans.find(
+          (l) => l.req === r.id && getAsset(l.asset).type === itemType,
+        );
+        let statusBadge, detail;
+        if (!loan) {
+          statusBadge = badge("No slip yet");
+          detail = "—";
+        } else if (loan.back) {
+          statusBadge = badge("Returned", true);
+          detail = loan.asset + " · L-" + loan.num + " · " + loan.who;
+        } else {
+          statusBadge = badge("Still out");
+          detail = loan.asset + " · L-" + loan.num + " · " + loan.who;
+        }
+        checklist +=
+          "<li><span>" +
+          esc(itemType) +
+          "</span> " +
+          statusBadge +
+          "<small>" +
+          esc(detail) +
+          "</small></li>";
+      }
+      checklist += "</ul>";
       html +=
         btn("Back to list", "close") +
         '<div class="record"><small>' +
@@ -177,20 +217,21 @@
         r.owner +
         "</p><p><b>Return by</b> " +
         r.due +
-        "</p><p><b>Approved equipment</b></p><ul>" +
-        r.items.map((x) => "<li>" + x + "</li>").join("") +
-        "</ul><p>" +
+        "</p><p><b>Approved equipment</b></p>" +
+        checklist +
+        "<p>" +
         r.note +
         "</p></div>";
     } else
       html += requests
-        .map((r) =>
-          row(
+        .map((r) => {
+          const summary = reqSummary(r.id);
+          return row(
             r.event,
-            r.id + " · " + r.club,
+            r.id + " · " + r.club + " · " + summary,
             btn("View form", "request", r.id),
-          ),
-        )
+          );
+        })
         .join("");
     return html;
   }
@@ -284,14 +325,34 @@
       .slice()
       .reverse();
     if (!shown.length) html += "<p>No outstanding slips.</p>";
-    for (const l of shown)
-      html += row(
-        "L-" + l.num + " · " + l.asset,
-        l.req + " · " + l.who + " · Due " + l.due,
-        l.back
-          ? badge("Returned")
-          : btn("Record return", "return", String(l.num)),
-      );
+    for (const l of shown) {
+      if (s.returning === l.num) {
+        // Unit confirmation form for this slip
+        const allAssets = assets.filter((a) => !a.repair);
+        html +=
+          '<div class="row"><div><strong>' +
+          esc("L-" + l.num + " · " + l.asset) +
+          "</strong><small>" +
+          esc(l.req + " · " + l.who + " · Due " + l.due) +
+          '</small></div><div style="width:100%">' +
+          '<form data-unit-confirm style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">' +
+          '<label style="flex:1;min-width:12rem"><span>Unit label in hand</span>' +
+          '<select name="unit" required><option value="">Select label…</option>' +
+          opts(allAssets.map((a) => [a.id, a.id + " · " + a.type])) +
+          "</select></label>" +
+          '<button type="submit" class="primary">Confirm return</button>' +
+          btn("Cancel", "return-cancel") +
+          "</form></div></div>";
+      } else {
+        html += row(
+          "L-" + l.num + " · " + l.asset,
+          l.req + " · " + l.who + " · Due " + l.due,
+          l.back
+            ? badge("Returned")
+            : btn("Record return", "return-start", String(l.num)),
+        );
+      }
+    }
     return html;
   }
   function deskbook() {
@@ -299,26 +360,49 @@
       "Desk book",
       "Messages from clubs and notes for the next shift",
     );
+
+    // Auto-built outstanding section
+    const openLoans = s.loans.filter((l) => !l.back);
+    html += '<div class="record"><h3>Outstanding right now</h3>';
+    if (openLoans.length === 0) {
+      html += "<p>All items returned.</p>";
+    } else {
+      html += "<ul>";
+      for (const l of openLoans) {
+        const a = getAsset(l.asset);
+        html +=
+          "<li>" +
+          esc("L-" + l.num + " · " + l.asset + " " + a.type) +
+          " — " +
+          esc(l.req + " · " + l.who + " · Due " + l.due) +
+          "</li>";
+      }
+      html += "</ul>";
+    }
+    html += "</div>";
+
     const entries = [
       [
         "Friday · 3:20 pm",
         "Isha Rao · Film Society",
-        "Kabir Sen is picking up our whole screening kit. Please issue it in his name. I’m setting up in the courtyard.",
+        "Kabir Sen is picking up our whole screening kit. Please issue it in his name. I'm setting up in the courtyard.",
       ],
       [
         "Friday · 3:30 pm",
         "Tara Shah · Debate Union",
-        "Our microphone stays with me overnight. I’ll return it by 10 am Saturday.",
+        "Our microphone stays with me overnight. I'll return it by 10 am Saturday.",
       ],
     ];
     if (s.phase >= 1)
       entries.push([
         "Friday · 7:30 pm",
         "Kabir Sen · Film Society",
-        "I brought the projector and speaker. Leela Das has our adapter. She’ll be at the counter at 9 am tomorrow.",
+        "I brought the projector and speaker. Leela Das has our adapter. She'll be at the counter at 9 am tomorrow.",
       ]);
-    for (const n of s.notes)
-      entries.push([shifts[n.phase].time, "Counter handover", n.text]);
+    for (const n of s.notes) {
+      const slipRef = n.slip ? " · re L-" + n.slip : "";
+      entries.push([shifts[n.phase].time, "Counter handover" + slipRef, n.text]);
+    }
     for (const [t, author, body] of entries.slice().reverse())
       html +=
         '<article class="record"><small>' +
@@ -328,9 +412,23 @@
         "</h3><p>" +
         esc(body) +
         "</p></article>";
+
+    // Note form with optional slip attachment
+    const slipOptions = [["", "General note (no slip)"]].concat(
+      openLoans.map((l) => [
+        String(l.num),
+        "L-" + l.num + " · " + l.asset + " · " + l.req,
+      ]),
+    );
     return (
       html +
-      '<form data-note><div class="form"><label class="full"><span>Note for the next shift</span><textarea name="note" rows="2" maxlength="400" required></textarea></label></div><button type="submit">Add handover note</button></form>'
+      '<form data-note><div class="form">' +
+      (openLoans.length
+        ? '<label><span>Attach to slip (optional)</span><select name="slip">' +
+          opts(slipOptions) +
+          "</select></label>"
+        : "") +
+      '<label class="full"><span>Note for the next shift</span><textarea name="note" rows="2" maxlength="400" required></textarea></label></div><button type="submit">Add handover note</button></form>'
     );
   }
   const screens = {
@@ -390,6 +488,7 @@
       case "tab":
         s.tab = v;
         s.editing = false;
+        s.returning = null;
         break;
       case "close":
         s.selected = "";
@@ -406,13 +505,17 @@
       case "scope":
         s.onlyOpen = v === "0";
         break;
-      case "return": {
+      case "return-start": {
         const l = s.loans.find((l) => l.num === Number(v));
         if (!l || l.back) return;
-        l.back = true;
-        s.notice = l.asset + " returned to stock. Slip L-" + l.num + " closed.";
+        s.returning = l.num;
+        s.notice = "Confirm which unit label is physically in your hand.";
         break;
       }
+      case "return-cancel":
+        s.returning = null;
+        s.notice = "Return cancelled.";
+        break;
     }
     commit();
   });
@@ -426,10 +529,49 @@
     e.preventDefault();
     const f = e.target;
     const form = new FormData(f);
+    if (f.matches("[data-unit-confirm]")) {
+      const unit = form.get("unit");
+      const loanNum = s.returning;
+      const loan = s.loans.find((l) => l.num === loanNum);
+      if (!loan) {
+        s.returning = null;
+        commit();
+        return;
+      }
+      if (unit === loan.asset) {
+        loan.back = true;
+        s.returning = null;
+        commit(loan.asset + " returned to stock. Slip L-" + loan.num + " closed.");
+      } else {
+        const conflictLoan = out(unit);
+        if (conflictLoan) {
+          s.notice =
+            unit +
+            " belongs to slip L-" +
+            conflictLoan.num +
+            " (" +
+            conflictLoan.req +
+            " · " +
+            conflictLoan.who +
+            "). Slip L-" +
+            loan.num +
+            " not closed.";
+        } else {
+          const assetExists = getAsset(unit);
+          s.notice = assetExists
+            ? unit + " is not currently on loan. Slip L-" + loan.num + " not closed."
+            : unit + " is not a known unit. Check the label and try again.";
+        }
+        commit();
+      }
+      return;
+    }
     if (f.matches("[data-note]")) {
       const text = String(form.get("note")).trim();
       if (!text) return;
-      s.notes.push({ phase: s.phase, text });
+      const slipVal = form.get("slip");
+      const slip = slipVal ? Number(slipVal) : null;
+      s.notes.push({ phase: s.phase, text, ...(slip ? { slip } : {}) });
       commit("Handover note saved.");
       return;
     }
