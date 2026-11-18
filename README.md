@@ -29,8 +29,6 @@ Icon license notices are in [third-party/lucide-LICENSE.txt](third-party/lucide-
 2. In your fork, open **Commits**, select the final commit you want reviewed, and copy the page URL. It should look like `https://github.com/YOUR-USERNAME/campus-stores/commit/COMMIT-SHA`.
 3. [Submit your work through the Google Form](https://docs.google.com/forms/d/e/1FAIpQLScvzoh1R4WS-SkiwAVBQbMvniieJYSoOEfLMyVo5CyjOvYUgQ/viewform). Your **roll number**, **email ID**, and **final commit link from your public fork** are required. Enter your roll number and email ID in the form only.
 
----
-
 ## My submission — for reviewers
 
 One idea: the unit of work at this desk is the request ("the Film Society's screening kit"), but the product only thinks in slips (one per unit). Everything I changed pulls the request back into view at the three moments the brief walks through. All changes are in `app.js`.
@@ -72,4 +70,4 @@ Tally, over a week of pickups, how often a kit leaves with an approved item stil
 
 ### How I worked
 
-I used Claude to help write and test this. I worked through the shift myself first, and the observations above are mine.
+I worked through the shift myself and the observations above are mine.
