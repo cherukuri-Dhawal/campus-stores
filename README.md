@@ -1,6 +1,6 @@
 # Campus Stores
 
-Campus Stores is a Product Engineer work sample set at a fictional campus media equipment desk. Work through a club’s screening, from equipment pickup to a partial return and the next morning’s handover. Open **Candidate brief** in the app for the assignment.
+Campus Stores is a Product Engineer work sample set at a fictional campus media equipment desk. Work through a club's screening, from equipment pickup to a partial return and the next morning's handover. Open **Candidate brief** in the app for the assignment.
 
 ## Run the app
 
@@ -33,60 +33,43 @@ Icon license notices are in [third-party/lucide-LICENSE.txt](third-party/lucide-
 
 ## My submission — for reviewers
 
-**The unit of work is the request, not the slip.** Every question at the counter — "did we give them everything?", "what's still out?", "which adapter is theirs?" — is a question about a request. The original product tracks individual slips well but never surfaces the request's status as a whole.
-
-### Where to look
-
-All changes are in `app.js`. Open `index.html` directly in a browser or serve it with `python3 -m http.server 8000 --bind 127.0.0.1`.
+One idea: the unit of work at this desk is the request ("the Film Society's screening kit"), but the product only thinks in slips (one per unit). Everything I changed pulls the request back into view at the three moments the brief walks through. All changes are in `app.js`.
 
 ### What the product handles well
 
-When I tried to issue PR-04 (HDMI projector) under RQ-209 (Debate Union, which only has "Wireless microphone" approved), the app immediately blocked me with *"This equipment type is outside the approved request."* No slip was created. That's exactly right: a desk worker under pressure can't memorise every form, and the app enforces the boundary without any extra step. The same guard fires for over-quantity and for units currently in repair.
+Over-issuing is hard. Trying to issue a second projector against RQ-214 (which approves one), a unit outside the request, or the projector in repair is refused with a clear message. The mistake that is hardest to undo — a wrong item leaving the building — is the one the app blocks best.
 
-### The one thing I'd change — and why
+### The moment I would change
 
-On Saturday morning I clicked **Record return** on L-404 (the Film Society's adapter, which could be AD-12 or AD-15 — two physically identical units in the same bin). The original app closed the slip immediately, with no check on which unit was physically in my hand. If I had picked the wrong adapter from the pile, the wrong slip would close, leaving the other adapter still marked as on loan with no way to know it was actually back. The root problem: return confirmation was keyed to the slip number, not to the physical unit label.
+Friday, 3:45 pm: "Can he leave with everything he needs?" The app can't tell me. What I need to hand over the kit correctly is spread over three screens: the approved items and the note about the USB-C-only laptop are on Requests, who is collecting is in the Desk book, and I issue on the Loan register, whose form shows none of it. I can issue the projector and speaker, hand them over, and never notice the adapter is missing, even though the request note says the screening depends on it.
 
-### What I changed (three additions to `app.js`)
+### What I changed
 
-- **Request-level checklist.** Opening a request now shows each approved item with its status — *Still out*, *Returned*, or *No slip yet* — plus the unit ID, slip number, and person. The request list and loan register rows show a summary (e.g. *RQ-214 · 1 still out*) at a glance.
-- **Unit-confirmed returns.** Clicking *Record return* now shows a dropdown: "Which label is physically in your hand?" If the label matches the slip, it closes. If it matches a *different* open slip, the app names that slip and closes nothing. If it isn't on loan at all, the app says so.
-- **Auto-built handover.** The Desk book's *Outstanding right now* section is generated live from the loan register — not typed by hand. Handover notes can optionally be attached to a specific slip so the morning shift knows exactly which loan is still open.
+- **At pickup:** choosing the request in the issue form now shows its kit in place: the note, each approved item, and what is already issued or still to issue. The return time defaults to the request's. After each slip the status line says what is still to issue, or that the kit is complete.
+- **At return:** "Record return" asks which unit label is physically in hand. A mismatch names the slip that unit belongs to, or says it isn't out, and closes nothing. This matters because the two adapters (AD-12, AD-15) are identical.
+- **At handover:** each request shows what is still out (also summarised on the Requests list and Loan register), and the Desk book lists everything outstanding, built from the register, with notes attachable to a slip.
 
-### The same job, walked through with the change
+### The same job with the change
 
-**Friday 3:45 pm — pickup.** I open RQ-214 and see the checklist: *No slip yet* against all three items. I issue PR-04, SP-02, and AD-12 to Kabir. The checklist updates to *Still out* for each. The request list row reads *RQ-214 · 3 still out*.
+Friday: I pick RQ-214 and see three items and the laptop note. After projector and speaker the status line says the adapter is still to issue, so I issue it and see "kit is complete". 7:30 pm: I take back the projector and speaker; the request reads "1 still out" and the Desk book already tells the morning shift. Saturday: Leela hands over an adapter. I choose AD-12 from its label and the slip closes; choosing AD-15 is refused.
 
-**Friday 7:30 pm — partial return.** Kabir brings back the projector and speaker. I click *Record return* on L-402 (projector). The confirmation dropdown appears; I select PR-04 — it matches, slip closes. Same for L-403 (SP-02). The checklist now shows *Returned* for two items and *Still out* for the adapter. I go to the Desk book: *Outstanding right now* lists L-404 (AD-12 · RQ-214 · Kabir Sen · Due Fri 8 pm) automatically. I add a handover note attached to L-404: *"Leela Das will return Saturday 9 am."*
+### What I kept, and what I rejected
 
-**Saturday 9 am — handover.** I read the Desk book and see the outstanding loan and the attached note in one place. Leela walks in. I click *Record return* on L-404. The dropdown shows. I select AD-15 (the wrong adapter). The app says *"AD-15 is not currently on loan. Slip L-404 not closed."* I look again, pick AD-12, confirm — slip closes. Checklist shows *All returned*.
+Kept: one slip per unit, and every existing block. Rejected on purpose:
 
-### What I kept
+- **Blocking handover until the kit is complete.** Partial pickups are legitimate here (the Film Society's own return is partial), so I warn instead of block.
+- **One-click "issue the whole request".** It skips the per-unit record and needs a quantity model I would be guessing at.
+- **Flagging late returns.** Due times are plain text like "Fri 8 pm", so comparing them properly needs a time model first.
 
-- All the original guards: wrong equipment type, over-quantity, units in repair.
-- The existing data model: one slip per physical unit.
-- `localStorage` restore works with old saved data; `returning: null` defaults safely.
+### Gaps I noticed but did not fix
 
-### Alternatives I rejected
+- Nothing records who may return the kit: Leela brings back an adapter issued to Kabir, and the app has no way to say that's fine.
+- A slip's return time can still be changed away from the request's without a warning.
 
-- **Issue the whole kit in one click.** Attractive, but the original model issues one slip per unit on purpose. A one-click issue would need a real quantity model (the app has none) and would skip the check for which physical unit is leaving. Scope too large; left out.
-- **Flag when slip due time doesn't match request due time.** RQ-214 says *Fri 8 pm*, but the issue form lets me pick *Sat 9 am* with no warning. Worth fixing, but it needs a due-time parser to compare strings reliably. Left out on purpose to keep scope tight.
-- **Validate that Leela is authorised to return Kabir's item.** The request doesn't name Leela at all. A real fix would require linking authorised returners to a request. Deferred.
+### One thing to watch at a real counter
 
-### Known gaps I noticed but did not fix
+Tally, over a week of pickups, how often a kit leaves with an approved item still to issue, and how often a return is corrected afterwards (the wrong slip closed, then reopened). I have no baseline, so the first week would only set one; the checklist helped if both tallies fall in the weeks after.
 
-- Nothing records that Leela is allowed to return Kabir's adapter. The app will accept a return from anyone.
-- Slip due time is not tied to the request's due time — a desk worker can issue under RQ-214 with *Sat 9 am* and nothing flags the mismatch.
-- The request checklist matches by equipment *type*, not by the specific unit. If two slips of the same type existed on one request, the checklist would only find the first. The business rule (one unit per type per request) prevents this today, but it's a hidden assumption.
+### How I worked
 
-### One measurable observation at a real counter
-
-**What to count:** returns that need a correction after the fact — a slip closed on the wrong unit and then manually fixed by a supervisor, or a unit marked "on loan" at end-of-day that is physically on the shelf.
-
-**How to count it:** review the register every Friday evening and Saturday morning for one month. Count slips that were reopened or notes that say "wrong unit closed."
-
-**My assumptions going in (untested — to be checked against real data):** in a desk handling 20–30 weekend loans, I'd guess roughly 1–2 wrong-unit closures per week when two identical adapters are in circulation. After the unit-confirmation step I'd guess that drops to zero. These numbers are my own assumptions; a real counter could easily show something different. If the number doesn't drop, the confirmation step adds friction without fixing the root cause (and the units probably need clearer physical labelling).
-
-### AI use
-
-I used Claude to help build and test this; I ran the shift myself and the observations are mine.
+I used Claude to help write and test this. I worked through the shift myself first, and the observations above are mine.

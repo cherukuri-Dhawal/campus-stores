@@ -74,7 +74,7 @@
     {
       time: "Friday · 7:30 pm",
       title: "The kit comes back in pieces",
-      text: "Kabir has brought back the projector and speaker. "Leela still has the adapter. She'll drop it off tomorrow at nine." Take the return and hand over to the morning shift.",
+      text: "Kabir has brought back the projector and speaker. “Leela still has the adapter. She’ll drop it off tomorrow at nine.” Take the return and hand over to the morning shift.",
       next: "Move to next morning",
     },
     {
@@ -107,8 +107,8 @@
     ],
     notes: [],
     editing: false,
-    onlyOpen: true,
     returning: null,
+    onlyOpen: true,
     notice: "Sample shift · All records are fictional.",
   });
   let s = original();
@@ -159,18 +159,58 @@
     "</div></div>";
   const badge = (t, good = false) =>
     '<span class="tag' + (good ? " good" : "") + '">' + esc(t) + "</span>";
-
-  // Returns a summary string for how many items are still out for a request
-  function reqSummary(reqId) {
-    const r = getReq(reqId);
-    const totalItems = r.items.length;
-    const issued = s.loans.filter((l) => l.req === reqId);
-    const stillOut = issued.filter((l) => !l.back).length;
-    if (issued.length === 0) return totalItems + " item" + (totalItems !== 1 ? "s" : "") + " · not issued";
-    if (stillOut === 0) return "All returned";
-    return stillOut + " still out";
+  // Request-level view: one line per approved item, matched to its slip.
+  // Every item on a request is either not yet issued, out, or returned.
+  function checklist(r) {
+    return r.items.map((type) => {
+      const slips = s.loans.filter(
+        (l) => l.req === r.id && getAsset(l.asset).type === type,
+      );
+      const open = slips.find((l) => !l.back);
+      const done = slips.find((l) => l.back);
+      return {
+        type,
+        loan: open || done || null,
+        state: open ? "out" : done ? "returned" : "not issued",
+      };
+    });
   }
-
+  const summary = (r) => {
+    const list = checklist(r);
+    const out = list.filter((i) => i.state === "out").length;
+    const todo = list.filter((i) => i.state === "not issued").length;
+    if (!out && !todo) return "All returned";
+    return [out && out + " still out", todo && todo + " not issued"]
+      .filter(Boolean)
+      .join(" · ");
+  };
+  const openLoans = () => s.loans.filter((l) => !l.back);
+  // Shown inside the issue form, at the moment someone is about to walk out
+  // with the kit: what the request needs, what's already issued, what's left.
+  const kitHtml = (id) => {
+    const r = getReq(id);
+    if (!r) return "<small>Pick the approved request to see its kit.</small>";
+    return (
+      "<small>" +
+      esc(r.id) +
+      " · " +
+      esc(r.club) +
+      " · return by " +
+      esc(r.due) +
+      "</small><p>" +
+      esc(r.note) +
+      "</p>" +
+      checklist(r)
+        .map((i) =>
+          row(
+            i.type,
+            i.loan ? i.loan.asset + " · " + i.loan.who : "Still to issue",
+            badge(i.state === "out" ? "Issued" : i.state, i.state !== "not issued"),
+          ),
+        )
+        .join("")
+    );
+  };
   function requestPage() {
     let html = head(
       "Approved requests",
@@ -178,33 +218,6 @@
     );
     if (s.selected) {
       const r = getReq(s.selected);
-      // Build per-item checklist
-      let checklist = '<ul class="checklist">';
-      for (const itemType of r.items) {
-        const loan = s.loans.find(
-          (l) => l.req === r.id && getAsset(l.asset).type === itemType,
-        );
-        let statusBadge, detail;
-        if (!loan) {
-          statusBadge = badge("No slip yet");
-          detail = "—";
-        } else if (loan.back) {
-          statusBadge = badge("Returned", true);
-          detail = loan.asset + " · L-" + loan.num + " · " + loan.who;
-        } else {
-          statusBadge = badge("Still out");
-          detail = loan.asset + " · L-" + loan.num + " · " + loan.who;
-        }
-        checklist +=
-          "<li><span>" +
-          esc(itemType) +
-          "</span> " +
-          statusBadge +
-          "<small>" +
-          esc(detail) +
-          "</small></li>";
-      }
-      checklist += "</ul>";
       html +=
         btn("Back to list", "close") +
         '<div class="record"><small>' +
@@ -217,21 +230,34 @@
         r.owner +
         "</p><p><b>Return by</b> " +
         r.due +
-        "</p><p><b>Approved equipment</b></p>" +
-        checklist +
+        "</p><p><b>Approved equipment · where each item is</b></p>" +
+        checklist(r)
+          .map((i) =>
+            row(
+              i.type,
+              i.loan
+                ? i.loan.asset +
+                    " · slip L-" +
+                    i.loan.num +
+                    " · " +
+                    i.loan.who
+                : "No slip yet",
+              badge(i.state === "out" ? "Still out" : i.state, i.state === "returned"),
+            ),
+          )
+          .join("") +
         "<p>" +
-        r.note +
+        esc(r.note) +
         "</p></div>";
     } else
       html += requests
-        .map((r) => {
-          const summary = reqSummary(r.id);
-          return row(
+        .map((r) =>
+          row(
             r.event,
-            r.id + " · " + r.club + " · " + summary,
+            r.id + " · " + r.club + " · " + summary(r),
             btn("View form", "request", r.id),
-          );
-        })
+          ),
+        )
         .join("");
     return html;
   }
@@ -302,6 +328,8 @@
           "due",
           ["Fri 8 pm", "Sat 9 am", "Sat 10 am", "Sat noon"].map((d) => [d, d]),
         ) +
+        '</div><div class="record" data-kit>' +
+        kitHtml("") +
         '</div><button type="submit" class="primary">Save issue slip</button></form>'
       );
     }
@@ -325,33 +353,33 @@
       .slice()
       .reverse();
     if (!shown.length) html += "<p>No outstanding slips.</p>";
+    if (s.returning) {
+      const l = s.loans.find((x) => x.num === s.returning);
+      const type = getAsset(l.asset).type;
+      const same = assets.filter((a) => a.type === type);
+      return (
+        html +
+        '<form data-return><div class="form"><label class="full"><span>Slip L-' +
+        l.num +
+        " · " +
+        esc(type) +
+        " · " +
+        esc(getReq(l.req).club) +
+        ". Which unit is in your hands? Read the label on the item.</span>" +
+        '<select name="unit" required><option value="">Select…</option>' +
+        opts(same.map((a) => [a.id, a.id + " · " + a.model])) +
+        '</select></label></div><button type="submit" class="primary">Confirm return</button> ' +
+        btn("Cancel", "cancel") +
+        "</form>"
+      );
+    }
     for (const l of shown) {
-      if (s.returning === l.num) {
-        // Unit confirmation form for this slip
-        const allAssets = assets.filter((a) => !a.repair);
-        html +=
-          '<div class="row"><div><strong>' +
-          esc("L-" + l.num + " · " + l.asset) +
-          "</strong><small>" +
-          esc(l.req + " · " + l.who + " · Due " + l.due) +
-          '</small></div><div style="width:100%">' +
-          '<form data-unit-confirm style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">' +
-          '<label style="flex:1;min-width:12rem"><span>Unit label in hand</span>' +
-          '<select name="unit" required><option value="">Select label…</option>' +
-          opts(allAssets.map((a) => [a.id, a.id + " · " + a.type])) +
-          "</select></label>" +
-          '<button type="submit" class="primary">Confirm return</button>' +
-          btn("Cancel", "return-cancel") +
-          "</form></div></div>";
-      } else {
-        html += row(
-          "L-" + l.num + " · " + l.asset,
-          l.req + " · " + l.who + " · Due " + l.due,
-          l.back
-            ? badge("Returned")
-            : btn("Record return", "return-start", String(l.num)),
-        );
-      }
+      const r = getReq(l.req);
+      html += row(
+        "L-" + l.num + " · " + l.asset,
+        l.req + " · " + l.who + " · Due " + l.due + " · Request: " + summary(r),
+        l.back ? badge("Returned") : btn("Record return", "return", String(l.num)),
+      );
     }
     return html;
   }
@@ -360,27 +388,6 @@
       "Desk book",
       "Messages from clubs and notes for the next shift",
     );
-
-    // Auto-built outstanding section
-    const openLoans = s.loans.filter((l) => !l.back);
-    html += '<div class="record"><h3>Outstanding right now</h3>';
-    if (openLoans.length === 0) {
-      html += "<p>All items returned.</p>";
-    } else {
-      html += "<ul>";
-      for (const l of openLoans) {
-        const a = getAsset(l.asset);
-        html +=
-          "<li>" +
-          esc("L-" + l.num + " · " + l.asset + " " + a.type) +
-          " — " +
-          esc(l.req + " · " + l.who + " · Due " + l.due) +
-          "</li>";
-      }
-      html += "</ul>";
-    }
-    html += "</div>";
-
     const entries = [
       [
         "Friday · 3:20 pm",
@@ -399,10 +406,38 @@
         "Kabir Sen · Film Society",
         "I brought the projector and speaker. Leela Das has our adapter. She'll be at the counter at 9 am tomorrow.",
       ]);
-    for (const n of s.notes) {
-      const slipRef = n.slip ? " · re L-" + n.slip : "";
-      entries.push([shifts[n.phase].time, "Counter handover" + slipRef, n.text]);
-    }
+    for (const n of s.notes)
+      entries.push([
+        shifts[n.phase].time,
+        "Counter handover",
+        (n.loan ? "Re L-" + n.loan + ": " : "") + n.text,
+      ]);
+    // Auto-built from the register, so the next shift never depends on
+    // someone remembering to type what is still out.
+    const open = openLoans();
+    html +=
+      '<div class="record"><small>Outstanding right now \xb7 from the loan register</small>' +
+      (open.length
+        ? open
+            .map(
+              (l) =>
+                "<p><b>L-" +
+                l.num +
+                " · " +
+                esc(l.asset) +
+                "</b> " +
+                esc(getAsset(l.asset).type) +
+                " · " +
+                esc(l.who) +
+                " · " +
+                esc(getReq(l.req).club) +
+                " · due " +
+                esc(l.due) +
+                "</p>",
+            )
+            .join("")
+        : "<p>Nothing outstanding.</p>") +
+      "</div>";
     for (const [t, author, body] of entries.slice().reverse())
       html +=
         '<article class="record"><small>' +
@@ -412,23 +447,11 @@
         "</h3><p>" +
         esc(body) +
         "</p></article>";
-
-    // Note form with optional slip attachment
-    const slipOptions = [["", "General note (no slip)"]].concat(
-      openLoans.map((l) => [
-        String(l.num),
-        "L-" + l.num + " · " + l.asset + " · " + l.req,
-      ]),
-    );
     return (
       html +
-      '<form data-note><div class="form">' +
-      (openLoans.length
-        ? '<label><span>Attach to slip (optional)</span><select name="slip">' +
-          opts(slipOptions) +
-          "</select></label>"
-        : "") +
-      '<label class="full"><span>Note for the next shift</span><textarea name="note" rows="2" maxlength="400" required></textarea></label></div><button type="submit">Add handover note</button></form>'
+      '<form data-note><div class="form"><label class="full"><span>About slip (optional)</span><select name="loan"><option value="">General note</option>' +
+      opts(open.map((l) => [String(l.num), "L-" + l.num + " · " + l.asset + " · " + l.who])) +
+      '</select></label><label class="full"><span>Note for the next shift</span><textarea name="note" rows="2" maxlength="400" required></textarea></label></div><button type="submit">Add handover note</button></form>'
     );
   }
   const screens = {
@@ -501,21 +524,18 @@
         break;
       case "cancel":
         s.editing = false;
+        s.returning = null;
         break;
       case "scope":
         s.onlyOpen = v === "0";
         break;
-      case "return-start": {
+      case "return": {
         const l = s.loans.find((l) => l.num === Number(v));
         if (!l || l.back) return;
         s.returning = l.num;
-        s.notice = "Confirm which unit label is physically in your hand.";
+        s.notice = "Check the unit label before closing slip L-" + l.num + ".";
         break;
       }
-      case "return-cancel":
-        s.returning = null;
-        s.notice = "Return cancelled.";
-        break;
     }
     commit();
   });
@@ -524,55 +544,42 @@
       s.filter = e.target.value;
       commit();
     }
+    if (e.target.matches("[data-issue] [name=req]")) {
+      const f = e.target.form;
+      f.querySelector("[data-kit]").innerHTML = kitHtml(e.target.value);
+      // Default the slip's return time to the approved request's, so a slip
+      // can't drift from the form without someone choosing that on purpose.
+      const r = getReq(e.target.value);
+      if (r && [...f.elements.due.options].some((o) => o.value === r.due))
+        f.elements.due.value = r.due;
+    }
   });
   root.addEventListener("submit", (e) => {
     e.preventDefault();
     const f = e.target;
     const form = new FormData(f);
-    if (f.matches("[data-unit-confirm]")) {
-      const unit = form.get("unit");
-      const loanNum = s.returning;
-      const loan = s.loans.find((l) => l.num === loanNum);
-      if (!loan) {
-        s.returning = null;
-        commit();
-        return;
-      }
-      if (unit === loan.asset) {
-        loan.back = true;
-        s.returning = null;
-        commit(loan.asset + " returned to stock. Slip L-" + loan.num + " closed.");
-      } else {
-        const conflictLoan = out(unit);
-        if (conflictLoan) {
-          s.notice =
-            unit +
-            " belongs to slip L-" +
-            conflictLoan.num +
-            " (" +
-            conflictLoan.req +
-            " · " +
-            conflictLoan.who +
-            "). Slip L-" +
-            loan.num +
-            " not closed.";
-        } else {
-          const assetExists = getAsset(unit);
-          s.notice = assetExists
-            ? unit + " is not currently on loan. Slip L-" + loan.num + " not closed."
-            : unit + " is not a known unit. Check the label and try again.";
-        }
-        commit();
-      }
-      return;
-    }
     if (f.matches("[data-note]")) {
       const text = String(form.get("note")).trim();
       if (!text) return;
-      const slipVal = form.get("slip");
-      const slip = slipVal ? Number(slipVal) : null;
-      s.notes.push({ phase: s.phase, text, ...(slip ? { slip } : {}) });
+      const loan = Number(form.get("loan")) || 0;
+      s.notes.push({ phase: s.phase, text, ...(loan ? { loan } : {}) });
       commit("Handover note saved.");
+      return;
+    }
+    if (f.matches("[data-return]")) {
+      const l = s.loans.find((x) => x.num === s.returning);
+      const unit = form.get("unit");
+      if (!l || l.back) return;
+      if (unit !== l.asset) {
+        const other = out(unit);
+        q("[data-status]").textContent = other
+          ? unit + " is on slip L-" + other.num + " (" + other.who + "). Slip L-" + l.num + " is for " + l.asset + ". Check the label."
+          : unit + " is not out on any slip, but L-" + l.num + " is for " + l.asset + ". Check the label.";
+        return;
+      }
+      l.back = true;
+      s.returning = null;
+      commit(l.asset + " returned to stock. Slip L-" + l.num + " closed. Request " + l.req + ": " + summary(getReq(l.req)) + ".");
       return;
     }
     if (!f.matches("[data-issue]")) return;
@@ -600,7 +607,21 @@
     const num = Math.max(...s.loans.map((l) => l.num)) + 1;
     s.loans.push({ num, req, asset, who, due, back: false });
     s.editing = false;
-    commit("Issued " + asset + " to " + who + " on slip L-" + num + ".");
+    const left = checklist(r)
+      .filter((i) => i.state === "not issued")
+      .map((i) => i.type);
+    commit(
+      "Issued " +
+        asset +
+        " to " +
+        who +
+        " on slip L-" +
+        num +
+        ". " +
+        (left.length
+          ? "Still to issue for " + req + ": " + left.join(", ") + "."
+          : req + " kit is complete."),
+    );
   });
   function restore(d) {
     if (
@@ -624,6 +645,7 @@
     s = {
       ...original(),
       ...d,
+      returning: null,
       loans: d.loans.map((l) => ({ ...l })),
       notes: d.notes.map((n) => ({ ...n })),
     };
